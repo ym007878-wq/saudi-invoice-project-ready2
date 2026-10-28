@@ -1,0 +1,6 @@
+{
+  "name": "Saudi Invoice Scanner",
+  "description": "تطبيق محاسبي لقراءة وفحص وتصدير الفواتير الإلكترونية السعودية (ZATCA) بصيغ الصور وPDF وXML مع كشف التكرار وتصدير Excel وحساب ضريبة المدخلات.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
