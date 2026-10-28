@@ -1,4 +1,5 @@
-name: Build Android APK
+
+name: Build and Package Debug APK
 
 on:
   workflow_dispatch:
@@ -12,106 +13,68 @@ permissions:
 
 jobs:
   build:
-    name: Build & Package Debug APK
+    name: Build and Package Debug APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Latest Source
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set Up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-          cache: 'gradle'
 
-      - name: Set up Android SDK
+      - name: Set Up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Verify Gradle Wrapper & Grant Permissions
+      - name: Install Android SDK Packages
         run: |
-          if [ ! -f "gradlew" ]; then
-            echo "Error: gradlew wrapper not found in root directory!"
-            exit 1
-          fi
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Verify Project Files
+        run: |
+          echo "Checking Android project..."
+          test -f settings.gradle.kts || test -f settings.gradle
+          test -f gradlew
+          test -f app/build.gradle.kts || test -f app/build.gradle
           chmod +x gradlew
-          ls -la gradlew
 
-      - name: Clean Build Cache & Old Artifacts
+      - name: Verify Gradle Wrapper
         run: |
-          echo "Cleaning previous build..."
-          ./gradlew clean --stacktrace
+          ./gradlew --version
 
-      - name: Assemble Debug APK from Source
+      - name: Clean Previous Build
         run: |
-          echo "Building debug APK..."
-          ./gradlew --no-daemon --no-build-cache assembleDebug --stacktrace --info
+          ./gradlew --no-daemon clean
 
-      - name: Verify Generated APK Existence
-        id: verify_apk
+      - name: Build New Debug APK
         run: |
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          if [ ! -f "$APK_PATH" ]; then
-            echo "::error::Build failed! Expected APK not found at $APK_PATH"
-            exit 1
-          fi
-          echo "APK successfully generated at $APK_PATH"
-          ls -lh "$APK_PATH"
+          ./gradlew --no-daemon --no-build-cache assembleDebug
 
-      - name: Generate Detailed Build & Security Report
+      - name: Verify APK
+        id: apk
         run: |
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          SHA256_HASH=$(sha256sum "$APK_PATH" | awk '{print $1}')
-          MD5_HASH=$(md5sum "$APK_PATH" | awk '{print $1}')
-          FILE_SIZE=$(du -h "$APK_PATH" | awk '{print $1}')
-          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          sha256sum "$APK" | tee apk-sha256.txt
+          ls -lh "$APK"
 
-          cat <<EOF > build-report.txt
-          =======================================================
-          تقرير بناء تطبيق قارئ الفاتورة الإلكترونية السعودية
-          SAUDI INVOICE SCANNER - ANDROID BUILD REPORT
-          =======================================================
-          رقم تشغيل GitHub (Run ID) : ${{ github.run_id }}
-          محاولة التشغيل (Run Number): ${{ github.run_number }}
-          الفرع (Branch)            : ${{ github.ref_name }}
-          معرّف الـ Commit (SHA)    : ${{ github.sha }}
-          المرسل (Triggered By)     : ${{ github.actor }}
-          تاريخ وتوقيت البناء (UTC) : $BUILD_DATE
-          
-          -------------------------------------------------------
-          معلومات الحزمة والملف التنفيذي (Package & APK Info)
-          -------------------------------------------------------
-          اسم الحزمة (Application ID) : com.aistudio.saudiinvoicescanner.kavx
-          رقم الإصدار (Version Code)  : 1
-          اسم الإصدار (Version Name)  : 1.0.0
-          مسار الملف الفعلي           : app/build/outputs/apk/debug/app-debug.apk
-          حجم الملف                   : $FILE_SIZE
-          
-          -------------------------------------------------------
-          البصمات الرقمية للتحقق من سلامة الملف (Digital Fingerprints)
-          -------------------------------------------------------
-          SHA-256 Checksum : $SHA256_HASH
-          MD5 Checksum    : $MD5_HASH
-          =======================================================
-          EOF
-          
-          cat build-report.txt
-
-      - name: Upload APK Artifact
+      - name: Upload Fresh APK
         uses: actions/upload-artifact@v4
         with:
-          name: SaudiInvoiceScanner-APK-${{ github.run_id }}
+          name: SaudiInvoiceScanner-APK-${{ github.run_number }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
 
-      - name: Upload Build & Integrity Report
+      - name: Upload SHA256 Report
         uses: actions/upload-artifact@v4
         with:
-          name: Build-Report-${{ github.run_id }}
-          path: build-report.txt
+          name: SaudiInvoiceScanner-SHA256-${{ github.run_number }}
+          path: apk-sha256.txt
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
