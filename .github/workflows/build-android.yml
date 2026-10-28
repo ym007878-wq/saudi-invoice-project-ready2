@@ -15,6 +15,7 @@ jobs:
   build:
     name: Build and Package Debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Latest Source
@@ -29,52 +30,86 @@ jobs:
       - name: Set Up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK Packages
+      - name: Install Required Android SDK Packages
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          set -euo pipefail
 
-      - name: Verify Project Files
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Verify Project Structure
+        shell: bash
         run: |
-          echo "Checking Android project..."
-          test -f settings.gradle.kts || test -f settings.gradle
-          test -f gradlew
-          test -f app/build.gradle.kts || test -f app/build.gradle
+          set -euo pipefail
+
+          if [ ! -f gradlew ]; then
+            echo "ERROR: Gradle Wrapper file is missing."
+            exit 1
+          fi
+
+          if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
+            echo "ERROR: Gradle settings file is missing."
+            exit 1
+          fi
+
+          if [ ! -f app/build.gradle.kts ] && [ ! -f app/build.gradle ]; then
+            echo "ERROR: Android app Gradle file is missing."
+            exit 1
+          fi
+
           chmod +x gradlew
 
+          echo "Project structure verified."
+
       - name: Verify Gradle Wrapper
-        run: |
-          ./gradlew --version
+        run: ./gradlew --no-daemon --version
 
       - name: Clean Previous Build
-        run: |
-          ./gradlew --no-daemon clean
+        run: ./gradlew --no-daemon clean
 
-      - name: Build New Debug APK
-        run: |
-          ./gradlew --no-daemon --no-build-cache assembleDebug
+      - name: Build Fresh Debug APK
+        run: ./gradlew --no-daemon --no-build-cache assembleDebug
 
-      - name: Verify APK
-        id: apk
+      - name: Verify APK and Generate SHA256
+        shell: bash
         run: |
+          set -euo pipefail
+
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-          sha256sum "$APK" | tee apk-sha256.txt
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            find app/build/outputs -type f 2>/dev/null || true
+            exit 1
+          fi
+
+          mkdir -p build-report
+
+          sha256sum "$APK" \
+            | tee build-report/apk-sha256.txt
+
+          cp "$APK" build-report/SaudiInvoiceScanner.apk
+
+          echo "APK generated successfully."
           ls -lh "$APK"
 
       - name: Upload Fresh APK
         uses: actions/upload-artifact@v4
         with:
           name: SaudiInvoiceScanner-APK-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: build-report/SaudiInvoiceScanner.apk
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload SHA256 Report
         uses: actions/upload-artifact@v4
         with:
-          name: SaudiInvoiceScanner-SHA256-${{ github.run_number }}
-          path: apk-sha256.txt
+          name: SaudiInvoiceScanner-Report-${{ github.run_number }}
+          path: build-report/apk-sha256.txt
           if-no-files-found: error
           retention-days: 14
